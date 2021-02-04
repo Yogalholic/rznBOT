@@ -3,107 +3,128 @@ from threading import Thread
 from random import seed
 from random import randint
 import math
+from decimal import Decimal
 seed(2)
-medianBuy = 33900
-medianSell = 34100
-# priceMinBuy = float(30000)
-# priceMaxBuy = float(32500)
-# priceMinSell = float(35000)
-# priceMaxSell = float(40000)
+medianBuy = #upper limit price to execute buying orders
+medianSell = #lower limit price to execute selling orders
 
+#  MarketData
 from kucoin.client import Market
-#client = Market(url='https://api.kucoin.com')
+client = Market(url='https://api.kucoin.com')
 #client = Market()
 
 # or connect to Sandbox
-market = Market(url='https://openapi-sandbox.kucoin.com')
-market = Market(is_sandbox=True)
-api_key = '5fba3c542bf81d000732c33a'
-api_secret = '9ea92efa-107d-4b7a-b5fd-e10e5e179f39'
-api_passphrase = 'uosisfuturo'
+#market = Market(url='https://openapi-sandbox.kucoin.com')
+#market = Market(is_sandbox=True)
+api_key = ''
+api_secret = ''
+api_passphrase = ''
 def returnBid(symbol):
-    book = market.get_aggregated_order(symbol)
+    '''
+    :param symbol: a trading pair ('BTC-USDT',...)
+    :return:  the second bid in the order book
+    '''
+    book = Market.get_aggregated_order(symbol)
     return book['bids'][1][0]
-# print(bid)
-# book = client.get_aggregated_order('BTC-USDT')
-# print(book)
-#klines = client.get_kline('BTC-USDT',1609254300, 1609164360)
-#print(klines)
-from kucoin.client import User
-user = User(api_key, api_secret, api_passphrase, is_sandbox=True)
 
-def returnAccountAvailable(token):
-    account = user.get_account_list(token, "trade")
+# User
+from kucoin.client import User
+client = User(api_key, api_secret, api_passphrase)
+
+# or connect to Sandbox
+#user = User(api_key, api_secret, api_passphrase, is_sandbox=True)
+
+def returnAccountAvailable(currency):
+    '''
+    :param currency: a symbol of a currency ('BTC', 'ETH',...)
+    :return: Funds available to withdraw or trade
+    '''
+    account = User.get_account_list(currency, "trade")
     return account[0]['available']
 
-def returnPrice(token):
-    account = market.get_ticker(token)
+def returnPrice(symbol):
+    '''
+    :param symbol: a trading pair ('BTC-USDT',...)
+    :return: the last deal price of a trading pair
+    '''
+    account = Market.get_ticker(symbol)
     return account['price']
-#print(price)
 
-def returnBaseMin(token):
-    list = market.get_symbol_list()
-    for item in list:
-        if item['symbol'] == token:
-            return  item['baseMinSize']
+def returnBaseMin(symbol):
+    '''
+    :param symbol: a trading pair ('BTC-USDT',...)
+    :return: The minimum order quantity required to place an order
+    '''
+    liste = Market.get_symbol_list()
+    element = list(filter(lambda item: item['symbol'] == symbol, liste))
+    return element[0]['baseMinSize']
 
-def returnIncrementSize(token):
-    list = market.get_symbol_list()
-    for item in list:
-        if item['symbol'] == token:
-            return  item['baseBaseIncrement']
+def returnIncrementSize(symbol):
+    '''
+    :param symbol: a trading pair ('BTC-USDT',...)
+    :return: The increment of the order size.
+    '''
+    liste = Market.get_symbol_list()
+    element = list(filter(lambda item: item['symbol'] == symbol, liste))
+    return Decimal(element[0]['baseIncrement'])
+
+# Trade
 from kucoin.client import Trade
-client = Trade(api_key, api_secret, api_passphrase, is_sandbox=True)
-# client = Trade(api_key, api_secret, api_passphrase)
-# order_id = client.get_order_details('5fba98ed9def070006002197')
-# order_id = client.cancel_order(self, orderId)('USDT-BTC', 'buy', size='1')
-# print(order_id)
-# bid = returnBid('BTC-USDT')
-# order = client.create_limit_order('BTC-USDT', 'sell', 1, bid)
-# print(order)
+client = Trade(api_key, api_secret, api_passphrase)
 
+# or connect to Sandbox
+# client = Trade(api_key, api_secret, api_passphrase, is_sandbox=True)
 class pair(Thread):
-    def __init__(self, ticker, token):
+    def __init__(self, symbol, currency):
         Thread.__init__(self)
-        self.ticker = ticker
-        self.token = token
+        self.symbol = symbol
+        self.currency = currency
 
 
 
     def run(self):
         while (1):
-            price = returnPrice(self.ticker)
-            bid = returnBid(self.ticker)
-            print(bid)
-            available = returnAccountAvailable(self.token)
-            baseMin = returnBaseMin(self.ticker)
+            price = returnPrice(self.symbol)
+            bid = returnBid(self.symbol)
+            print(f'bid: {bid}')
+            available = returnAccountAvailable(self.currency)
+            baseMin = returnBaseMin(self.symbol)
+            baseIncrement = returnIncrementSize(self.symbol)
             def amountCalculus(self, median):
-                amount = .01 * randint(60, 80) * float(available) * math.exp(-abs(0.001 * (median - float(bid))))
+                '''
+                :param self: instance of a thread of a trading pair
+                :param median: the median price of a trading pair
+                :return:  size of the order calculated as a percentage of funds available and following an exponential decay
+                '''
+                amount = Decimal(.01 * randint(60, 80) * float(available) * math.exp(-abs(0.001 * (median - float(bid)))))
+                amount = Decimal(amount).quantize(baseIncrement)
                 if float(amount) < float(baseMin):
                     amount = baseMin
-                print(amount)
+                print(f'amount: {amount}')
                 return amount
 
+            def executeOrder(self, orderSide):
+                '''
+                :param self: instance of a thread of a trading pair
+                :param orderSide: buy or sell
+                :return: JSON of the order
+                '''
+                amount = amountCalculus(self, medianBuy)
+                return client.create_limit_order(self.symbol, orderSide, float(amount), bid)
+
+
             if (float(price) < medianBuy):
-                debut = time.time()
                 try:
-                    amount = amountCalculus(self, medianBuy)
-                    order = client.create_limit_order(self.ticker, 'buy', amount, bid)
-                    print(f'{self.ticker}: {order}')
-                    fin = time.time()
-                    print(fin - debut)
+                    order = executeOrder(self, 'buy')
+                    print(f'{self.symbol}: {order}')
                     time.sleep(randint(20, 120))
                 except Exception as err:
                     print(err)
                     break
             elif (float(price) >medianSell):
-                debut = time.time()
                 try:
-                    amount = amountCalculus(self, medianSell)
-                    order = client.create_limit_order(self.ticker, 'sell', amount, bid)
-                    print(f'{self.ticker}: {order}')
-                    fin = time.time()
-                    print(fin - debut)
+                    order = executeOrder(self, 'sell')
+                    print(f'{self.symbol}: {order}')
                     time.sleep(randint(10, 120))
                 except Exception as err:
                     print(err)
